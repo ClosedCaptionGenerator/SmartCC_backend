@@ -23,11 +23,5 @@ pip install -r requirements.txt
 
 ### migrate & runserver
 ```
-python manage.py migrate
-python manage.py runserver
-```
-
-### Superuser
-```
-python manage.py createsuperuser
+python app.py
 ```
