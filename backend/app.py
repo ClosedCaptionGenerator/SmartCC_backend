@@ -1,11 +1,27 @@
+import ssl
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pytube import YouTube
 import os
+import sqlite3
+from contextlib import closing
 
 app = Flask(__name__)
 CORS(app)  # CORS 설정
 
+ssl._create_default_https_context = ssl._create_unverified_context
+
+DATABASE = 'database.db'
+
+def connect_db():
+    return sqlite3.connect(DATABASE)
+
+def init_db():
+    with closing(connect_db()) as db:
+        with app.open_resource('schema.sql', mode='r') as f:
+            db.cursor().executescript(f.read())
+        db.commit()
 
 @app.route('/', methods=['GET'])
 def hello_world():
@@ -33,12 +49,23 @@ def download_audio():
         filename = f"{safe_title}.mp3"
 
         audio_stream.download(output_path='downloads', filename=filename)  # mp3 형식으로 다운로드
+
+        with connect_db() as db:
+            db.execute('INSERT INTO downloads(url, filename) VALUES (?, ?)', (url, filename))
+            db.commit()
+
         return jsonify({'message': 'Audio downloaded successfully', 'filename': filename})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
+
+
 if __name__ == '__main__':
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
+
+    if not os.path.exists(DATABASE):
+        init_db()
+
     app.run(debug=True)
