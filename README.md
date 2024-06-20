@@ -21,7 +21,15 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### migrate & runserver
+### runserver
 ```
+cd backend
 python app.py
+```
+
+### Extention
+```
+크롬 브라우저에서 chrome://extensions/로 이동
+개발자 모드를 활성화
+압축 해제된 확장 프로그램 로드 버튼을 클릭하고, extension 디렉토리를 선택
 ```
