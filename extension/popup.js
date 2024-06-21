@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    fetch('http://127.0.0.1:5000/api/download_audio', {
+    fetch('https://web-flask.jollyground-483c02b7.westus2.azurecontainerapps.io/api/download_audio', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
