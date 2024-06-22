@@ -29,14 +29,11 @@ def connect_db():
 
 
 def init_db():
-    app.logger.info('Initializing database')
     schema_path = os.path.join(os.path.dirname(__file__), 'schema.sql')
-    app.logger.info(f'Reading schema from: {schema_path}')
     with closing(connect_db()) as db:
         with open(schema_path, mode='r') as f:
             db.cursor().executescript(f.read())
         db.commit()
-    app.logger.info('Database initialized')
 
 
 @app.route('/', methods=['GET'])
