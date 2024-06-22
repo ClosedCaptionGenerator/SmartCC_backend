@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const downloadButton = document.getElementById('downloadButton');
   const youtubeUrlInput = document.getElementById('youtubeUrl');
   const statusMessage = document.getElementById('statusMessage');
+  const astSubtitlesTextarea = document.getElementById('astSubtitles');
 
   downloadButton.addEventListener('click', () => {
     const youtubeUrl = youtubeUrlInput.value;
@@ -23,6 +24,8 @@ document.addEventListener('DOMContentLoaded', () => {
         statusMessage.textContent = `Error: ${data.error}`;
       } else {
         statusMessage.textContent = `Audio downloaded successfully: ${data.filename}`;
+        const astSubtitles = data.ast_subtitles.map(sub => `${sub}`).join('\n');
+        astSubtitlesTextarea.value = astSubtitles;
       }
     })
     .catch(error => {
