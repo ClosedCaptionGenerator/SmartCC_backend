@@ -1,20 +1,42 @@
+import ssl
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pytube import YouTube
 import os
+import sqlite3
+from contextlib import closing
 import torch
 import torchaudio
 import soundfile as sf
 from transformers import pipeline
-import ffmpeg  # ffmpeg 모듈 임포트 추가
+import ffmpeg
 import warnings
 from datetime import timedelta
+import json
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 app = Flask(__name__)
 CORS(app)
 
-# AST 모델 로드
+ssl._create_default_https_context = ssl._create_unverified_context
+
+DATABASE = 'database.db'
 pipe = pipeline("audio-classification", model="MIT/ast-finetuned-audioset-10-10-0.4593")
+
+
+def connect_db():
+    return sqlite3.connect(DATABASE)
+
+
+def init_db():
+    app.logger.info('Initializing database')
+    schema_path = os.path.join(os.path.dirname(__file__), 'schema.sql')
+    app.logger.info(f'Reading schema from: {schema_path}')
+    with closing(connect_db()) as db:
+        with open(schema_path, mode='r') as f:
+            db.cursor().executescript(f.read())
+        db.commit()
+    app.logger.info('Database initialized')
 
 
 @app.route('/', methods=['GET'])
@@ -36,6 +58,15 @@ def generate_subtitles(predictions, segment_duration):
     return subtitles
 
 
+def normalize_url(url):
+    parsed_url = urlparse(url)
+    query_params = parse_qs(parsed_url.query)
+    query_params.pop('t', None)
+    normalized_query = urlencode(query_params, doseq=True)
+    normalized_url = urlunparse(parsed_url._replace(query=normalized_query))
+    return normalized_url
+
+
 @app.route('/api/download_audio', methods=['POST'])
 def download_audio():
     data = request.get_json()
@@ -43,7 +74,18 @@ def download_audio():
     if not url:
         return jsonify({'error': 'URL is required'}), 400
 
+    normalized_url = normalize_url(url)
+
     try:
+        with connect_db() as db:
+            cursor = db.cursor()
+            cursor.execute('SELECT subtitles FROM downloads WHERE url = ?', (normalized_url,))
+            row = cursor.fetchone()
+            if row:
+                subtitles = json.loads(row[0])
+                return jsonify(
+                    {'message': 'URL already exists in the database', 'url': normalized_url, 'subtitles': subtitles}), 200
+
         yt = YouTube(url)
         if yt.age_restricted:
             return jsonify({'error': 'Video is age restricted and cannot be downloaded without logging in'}), 403
@@ -73,16 +115,14 @@ def download_audio():
             app.logger.error(f"Converted file does not exist: {converted_filepath}")
             return jsonify({'error': f"Converted file does not exist: {converted_filepath}"}), 500
 
-        # 모델로 비음성 분석
+        # 오디오 데이터를 PyTorch 텐서로 변환
         app.logger.info(f"Starting non-speech analysis with AST model")
         waveform, sample_rate = sf.read(converted_filepath)
-        waveform = torch.tensor(waveform).unsqueeze(0)  # 배치 차원 추가
+        waveform = torch.tensor(waveform).unsqueeze(0)
 
-        # 최소 세그먼트 길이 보장
         segment_duration = 10
         num_samples_per_segment = sample_rate * segment_duration
 
-        # 전체 길이가 충분히 긴지 확인
         total_length = waveform.shape[1]
         if total_length < num_samples_per_segment:
             padding = num_samples_per_segment - total_length
@@ -96,21 +136,29 @@ def download_audio():
             end = (i + 1) * num_samples_per_segment
             segment = waveform[:, start:end]
 
-            # pipeline을 사용한 예측
+            # pipeline으로 모델 사용
             prediction = pipe(segment.squeeze().numpy(), sampling_rate=sample_rate)
             ast_predictions.append(prediction[0])
 
-        # 자막 생성
-        ast_subtitles = generate_subtitles(ast_predictions, segment_duration)
+        subtitles = generate_subtitles(ast_predictions, segment_duration)
         app.logger.info(f"End Transcribed with AST model")
 
-        # 파일 삭제
         os.remove(filepath)
         os.remove(converted_filepath)
         app.logger.info(f"Deleted files: {filepath} and {converted_filepath}")
 
+        with connect_db() as db:
+            cursor = db.cursor()
+            cursor.execute('SELECT id FROM downloads WHERE url = ?', (normalized_url,))
+            row = cursor.fetchone()
+            if row:
+                db.execute('UPDATE downloads SET subtitles = ?, timestamp = CURRENT_TIMESTAMP WHERE url = ?', (json.dumps(subtitles), normalized_url))
+            else:
+                db.execute('INSERT INTO downloads(url, subtitles) VALUES (?, ?)', (normalized_url, json.dumps(subtitles)))
+            db.commit()
+
         return jsonify(
-            {'message': 'Audio downloaded successfully', 'filename': filename, 'ast_subtitles': ast_subtitles})
+            {'message': 'Audio downloaded successfully', 'filename': filename, 'subtitles': subtitles})
     except Exception as e:
         app.logger.error(f"Error processing request: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
@@ -119,4 +167,8 @@ def download_audio():
 if __name__ == '__main__':
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
+
+    if not os.path.exists(DATABASE):
+        init_db()
+
     app.run(debug=True)
