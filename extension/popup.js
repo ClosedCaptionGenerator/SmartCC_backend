@@ -24,8 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statusMessage.textContent = `Error: ${data.error}`;
       } else {
         statusMessage.textContent = `Audio downloaded successfully: ${data.filename}`;
-        const astSubtitles = data.ast_subtitles.map(sub => `${sub}`).join('\n');
-        astSubtitlesTextarea.value = astSubtitles;
+        astSubtitlesTextarea.value = data.subtitles.map(sub => `${sub}`).join('\n');
       }
     })
     .catch(error => {
