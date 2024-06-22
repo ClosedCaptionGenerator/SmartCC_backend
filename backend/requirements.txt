@@ -8,3 +8,13 @@ MarkupSafe==2.1.5
 pytube==15.0.0
 Werkzeug==3.0.3
 gunicorn
+
+transformers
+torch
+sentencepiece
+ffmpeg
+# whisper test
+openai-whisper
+ffmpeg-python
+torchaudio
+soundfile
