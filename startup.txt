@@ -1,1 +1,1 @@
-gunicorn --workers=4 --bind=0.0.0.0 --timeout 600 backend.app:app
+cd /home/site/wwwroot && pip install -r requirements.txt && gunicorn --workers=4 --bind=0.0.0.0:8081 --timeout 1000 backend.app:app
