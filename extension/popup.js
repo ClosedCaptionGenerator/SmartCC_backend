@@ -1,11 +1,14 @@
 document.addEventListener('DOMContentLoaded', () => {
   const downloadButton = document.getElementById('downloadButton');
   const youtubeUrlInput = document.getElementById('youtubeUrl');
+  const languageSelect = document.getElementById('languageSelect');
   const statusMessage = document.getElementById('statusMessage');
   const astSubtitlesTextarea = document.getElementById('astSubtitles');
 
   downloadButton.addEventListener('click', () => {
     const youtubeUrl = youtubeUrlInput.value;
+    const selectedLanguage = languageSelect.value;
+
     if (!youtubeUrl) {
       statusMessage.textContent = 'Please enter a YouTube URL';
       return;
@@ -16,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ url: youtubeUrl })
+      body: JSON.stringify({ url: youtubeUrl, language: selectedLanguage })
     })
     .then(response => response.json())
     .then(data => {

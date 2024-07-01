@@ -90,6 +90,8 @@ def normalize_url(url):
 def download_audio():
     data = request.get_json()
     url = data.get('url')
+    language = data.get('language', 'en')  # 기본값으로 영어를 설정
+
     if not url:
         return jsonify({'error': 'URL is required'}), 400
 
@@ -139,7 +141,7 @@ def download_audio():
 
         # Whisper Large-v3 모델로 자막 생성
         app.logger.info(f"Starting transcription with Whisper model")
-        result = pipe(converted_filepath)
+        result = pipe(converted_filepath, generate_kwargs={"language": language})
         subtitles = generate_subtitles(result['chunks'])
         app.logger.info(f"End Transcribed with Whisper model")
 
