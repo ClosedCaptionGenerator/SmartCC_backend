@@ -70,12 +70,32 @@ def format_time_srt(seconds):
 
 def generate_subtitles(segments):
     subtitles = []
-    for i, segment in enumerate(segments):
-        start_time = segment['timestamp'][0]
-        end_time = segment['timestamp'][1] if segment['timestamp'][1] is not None else start_time + 1
+    buffer = ""
+    start_time = None
+    end_time = None
+    subtitle_index = 1
+
+    for segment in segments:
         text = segment['text']
-        srt_subtitle = f"{i+1}\n{format_time_srt(start_time)} --> {format_time_srt(end_time)}\n{text}\n"
+        timestamp = segment['timestamp']
+
+        if start_time is None:
+            start_time = timestamp[0]
+
+        buffer += text + " "
+        end_time = timestamp[1] if timestamp[1] is not None else timestamp[0] + 1
+
+        if len(buffer) > 20 or any(punct in text for punct in ['.', ',', '!', '?']):
+            srt_subtitle = f"{subtitle_index}\n{format_time_srt(start_time)} --> {format_time_srt(end_time)}\n{buffer.strip()}\n"
+            subtitles.append(srt_subtitle)
+            buffer = ""
+            start_time = None
+            subtitle_index += 1
+
+    if buffer:
+        srt_subtitle = f"{subtitle_index}\n{format_time_srt(start_time)} --> {format_time_srt(end_time)}\n{buffer.strip()}\n"
         subtitles.append(srt_subtitle)
+
     return subtitles
 
 def normalize_url(url):
