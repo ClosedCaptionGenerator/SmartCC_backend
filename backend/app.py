@@ -98,6 +98,10 @@ def generate_subtitles(segments):
 
     return subtitles
 
+def save_subtitles_to_srt(subtitles, filepath):
+    with open(filepath, 'w', encoding='utf-8') as srt_file:
+        srt_file.writelines(subtitles)
+
 def normalize_url(url):
     parsed_url = urlparse(url)
     query_params = parse_qs(parsed_url.query)
@@ -164,6 +168,14 @@ def download_audio():
         result = pipe(converted_filepath, generate_kwargs={"language": language})
         subtitles = generate_subtitles(result['chunks'])
         app.logger.info(f"End Transcribed with Whisper model")
+
+        # SRT 파일로 저장
+        srt_folder = 'srtfiles'
+        if not os.path.exists(srt_folder):
+            os.makedirs(srt_folder)
+        srt_filepath = os.path.join(srt_folder, f"{safe_title}.srt")
+        save_subtitles_to_srt(subtitles, srt_filepath)
+        app.logger.info(f"Subtitles saved to {srt_filepath}")
 
         # 데이터베이스에 자막 저장
         with connect_db() as db:
