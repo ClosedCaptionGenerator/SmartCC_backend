@@ -18,3 +18,7 @@ openai-whisper
 ffmpeg-python
 torchaudio
 soundfile
+
+flask-socketio
+scipy
+accelerate

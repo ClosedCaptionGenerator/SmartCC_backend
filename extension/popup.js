@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    fetch('https://web-flask.jollyground-483c02b7.westus2.azurecontainerapps.io/api/download_audio', {
+    fetch('http://localhost:5000/api/download_audio', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statusMessage.textContent = `Error: ${data.error}`;
       } else {
         statusMessage.textContent = `Audio downloaded successfully: ${data.filename}`;
-        astSubtitlesTextarea.value = data.subtitles.map(sub => `${sub}`).join('\n');
+        astSubtitlesTextarea.value = data.subtitles.join('\n');
       }
     })
     .catch(error => {
