@@ -199,6 +199,10 @@ def download_audio():
             {'message': 'Audio downloaded successfully', 'filename': filename, 'subtitles': subtitles})
     except Exception as e:
         app.logger.error(f"Error processing request: {e}", exc_info=True)
+        for filename in os.listdir('downloads'):
+            file_path = os.path.join('downloads', filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
