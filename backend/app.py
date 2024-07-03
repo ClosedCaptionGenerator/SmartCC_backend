@@ -1,8 +1,10 @@
+import os
+# os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
 import ssl
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pytube import YouTube, exceptions
-import os
 import sqlite3
 from contextlib import closing
 import torch
@@ -13,6 +15,7 @@ import warnings
 from datetime import timedelta
 import json
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from pathlib import Path
 
 app = Flask(__name__)
 CORS(app)
@@ -22,8 +25,11 @@ ssl._create_default_https_context = ssl._create_unverified_context
 DATABASE = 'database.db'
 
 # Whisper Large-v3 모델 로드
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
+# device = "mps" if torch.backends.mps.is_available() else "cpu"
+# torch_dtype = torch.float32
+device = "cpu"
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+
 
 model_id = "openai/whisper-large-v3"
 
@@ -122,15 +128,6 @@ def download_audio():
     normalized_url = normalize_url(url)
 
     try:
-        with connect_db() as db:
-            cursor = db.cursor()
-            cursor.execute('SELECT subtitles FROM downloads WHERE url = ?', (normalized_url,))
-            row = cursor.fetchone()
-            if row:
-                subtitles = json.loads(row[0])
-                return jsonify(
-                    {'message': 'URL already exists in the database', 'url': normalized_url, 'subtitles': subtitles}), 200
-
         try:
             yt = YouTube(url)
             if yt.age_restricted:
@@ -169,24 +166,13 @@ def download_audio():
         subtitles = generate_subtitles(result['chunks'])
         app.logger.info(f"End Transcribed with Whisper model")
 
-        # SRT 파일로 저장
-        srt_folder = 'srtfiles'
-        if not os.path.exists(srt_folder):
-            os.makedirs(srt_folder)
-        srt_filepath = os.path.join(srt_folder, f"{safe_title}.srt")
+        # SRT 파일로 저장 (사용자의 Downloads 폴더로 경로 설정)
+        srt_folder = Path.home() / 'Downloads'
+        if not srt_folder.exists():
+            srt_folder.mkdir(parents=True)
+        srt_filepath = srt_folder / f"{safe_title}.srt"
         save_subtitles_to_srt(subtitles, srt_filepath)
         app.logger.info(f"Subtitles saved to {srt_filepath}")
-
-        # 데이터베이스에 자막 저장
-        with connect_db() as db:
-            cursor = db.cursor()
-            cursor.execute('SELECT id FROM downloads WHERE url = ?', (normalized_url,))
-            row = cursor.fetchone()
-            if row:
-                db.execute('UPDATE downloads SET subtitles = ?, timestamp = CURRENT_TIMESTAMP WHERE url = ?', (json.dumps(subtitles), normalized_url))
-            else:
-                db.execute('INSERT INTO downloads(url, subtitles) VALUES (?, ?)', (normalized_url, json.dumps(subtitles)))
-            db.commit()
 
         # 파일 삭제
         if os.path.exists(filepath):
@@ -199,6 +185,10 @@ def download_audio():
             {'message': 'Audio downloaded successfully', 'filename': filename, 'subtitles': subtitles})
     except Exception as e:
         app.logger.error(f"Error processing request: {e}", exc_info=True)
+        for filename in os.listdir('downloads'):
+            file_path = os.path.join('downloads', filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
@@ -208,7 +198,7 @@ if __name__ == '__main__':
     if not os.path.exists('srtfiles'):
         os.makedirs('srtfiles')
 
-    if not os.path.exists(DATABASE):
-        init_db()
+    # if not os.path.exists(DATABASE):
+    #     init_db()
 
     app.run(debug=True)
