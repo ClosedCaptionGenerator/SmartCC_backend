@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    fetch('http://localhost:5000/api/download_audio', {
+    fetch('http://127.0.0.1:5000/api/download_audio', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

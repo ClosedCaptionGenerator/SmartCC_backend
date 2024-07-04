@@ -98,9 +98,11 @@ def generate_subtitles(segments):
 
     return subtitles
 
-def save_subtitles_to_srt(subtitles, filepath):
-    with open(filepath, 'w', encoding='utf-8') as srt_file:
+def save_subtitles_to_srt(subtitles, base_filename):
+    srt_filepath = os.path.join('srtfiles', base_filename + '.srt')
+    with open(srt_filepath, 'w', encoding='utf-8') as srt_file:
         srt_file.writelines(subtitles)
+    print(f"Saved subtitles to {srt_filepath}")
 
 def normalize_url(url):
     parsed_url = urlparse(url)
@@ -109,6 +111,44 @@ def normalize_url(url):
     normalized_query = urlencode(query_params, doseq=True)
     normalized_url = urlunparse(parsed_url._replace(query=normalized_query))
     return normalized_url
+
+
+def split_audio(input_filepath, segment_length=60):
+    # 1분 간격(60초)으로 오디오 파일 분할
+    output_path = os.path.join('downloads', 'splits')
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+    output_template = os.path.join(output_path, 'split_%03d.wav')
+    ffmpeg.input(input_filepath).output(output_template, acodec='pcm_s16le', ar='16k', ac=1, segment_time=segment_length, f='segment').run()
+    return output_path
+
+
+def process_audio_segments(segment_folder, language):
+    for segment_file in sorted(os.listdir(segment_folder)):
+        segment_path = os.path.join(segment_folder, segment_file)
+        print(f"Processing {segment_path}")
+        result = pipe(segment_path, generate_kwargs={"language": language})
+        subtitles = generate_subtitles(result['chunks'])
+        base_filename = os.path.splitext(segment_file)[0]  # 확장자 없는 파일명 추출
+        save_subtitles_to_srt(subtitles, base_filename)
+
+def merge_subtitles(srt_folder, final_filename):
+    all_subtitles = []
+    for srt_file in sorted(os.listdir(srt_folder)):
+        srt_path = os.path.join(srt_folder, srt_file)
+        with open(srt_path, 'r', encoding='utf-8') as file:
+            all_subtitles.extend(file.readlines())
+            all_subtitles.append('\n')  # 각 SRT 파일 사이에 공백 줄 추가
+
+    final_srt_path = os.path.join('srtfiles', final_filename + '.srt')
+    with open(final_srt_path, 'w', encoding='utf-8') as final_srt_file:
+        final_srt_file.writelines(all_subtitles)
+    print(f"Final subtitles saved to {final_srt_path}")
+
+    # 기존의 임시 SRT 파일들 삭제
+    for srt_file in os.listdir(srt_folder):
+        os.remove(os.path.join(srt_folder, srt_file))
+    os.rmdir(srt_folder)  # 빈 폴더 삭제
 
 @app.route('/api/download_audio', methods=['POST'])
 def download_audio():
@@ -125,78 +165,37 @@ def download_audio():
         with connect_db() as db:
             cursor = db.cursor()
             cursor.execute('SELECT subtitles FROM downloads WHERE url = ?', (normalized_url,))
-            row = cursor.fetchone()
-            if row:
-                subtitles = json.loads(row[0])
-                return jsonify(
-                    {'message': 'URL already exists in the database', 'url': normalized_url, 'subtitles': subtitles}), 200
+            if cursor.fetchone():
+                return jsonify({'message': 'URL already exists in the database', 'url': normalized_url}), 200
 
-        try:
-            yt = YouTube(url)
-            if yt.age_restricted:
-                return jsonify({'error': 'Video is age restricted and cannot be downloaded without logging in'}), 403
-        except exceptions.AgeRestrictedError:
-            return jsonify({'error': 'Video is age restricted and cannot be accessed without logging in'}), 403
+        yt = YouTube(url)
+        if yt.age_restricted:
+            return jsonify({'error': 'Video is age restricted and cannot be downloaded without logging in'}), 403
 
         audio_stream = yt.streams.filter(only_audio=True).first()
         if not audio_stream:
             return jsonify({'error': 'No audio stream available'}), 404
 
-        # 파일명을 YouTube 제목으로 설정하고, 파일명에서 허용되지 않는 문자를 제거
-        safe_title = ''.join([c for c in yt.title if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
+        safe_title = ''.join([c for c in yt.title if c.isalnum() or c == ' ']).strip()
         filename = f"{safe_title}.mp3"
         filepath = os.path.join('downloads', filename)
-
-        app.logger.info(f"Downloading audio")
         audio_stream.download(output_path='downloads', filename=filename)
-        app.logger.info(f"End Downloaded")
 
-        # 오디오 파일 변환 (단일 채널, 모델이 지원하는 형식으로)
-        app.logger.info(f"Saving audio to {filepath}")
         converted_filepath = os.path.join('downloads', f"{safe_title}_converted.wav")
         ffmpeg.input(filepath).output(converted_filepath, format='wav', acodec='pcm_s16le', ar='16k', ac=1).run()
 
-        app.logger.info(f"Audio saved to {converted_filepath}")
+        splits_folder = split_audio(converted_filepath)
+        process_audio_segments(splits_folder, language)
 
-        # 파일이 존재하는지 확인
-        if not os.path.exists(converted_filepath):
-            app.logger.error(f"Converted file does not exist: {converted_filepath}")
-            return jsonify({'error': f"Converted file does not exist: {converted_filepath}"}), 500
+        # Cleanup
+        os.remove(filepath)
+        os.remove(converted_filepath)
+        for segment_file in os.listdir(splits_folder):
+            os.remove(os.path.join(splits_folder, segment_file))
+        os.rmdir(splits_folder)
 
-        # Whisper Large-v3 모델로 자막 생성
-        app.logger.info(f"Starting transcription with Whisper model")
-        result = pipe(converted_filepath, generate_kwargs={"language": language})
-        subtitles = generate_subtitles(result['chunks'])
-        app.logger.info(f"End Transcribed with Whisper model")
+        return jsonify({'message': 'Audio processed and subtitles generated successfully'})
 
-        # SRT 파일로 저장
-        srt_folder = 'srtfiles'
-        if not os.path.exists(srt_folder):
-            os.makedirs(srt_folder)
-        srt_filepath = os.path.join(srt_folder, f"{safe_title}.srt")
-        save_subtitles_to_srt(subtitles, srt_filepath)
-        app.logger.info(f"Subtitles saved to {srt_filepath}")
-
-        # 데이터베이스에 자막 저장
-        with connect_db() as db:
-            cursor = db.cursor()
-            cursor.execute('SELECT id FROM downloads WHERE url = ?', (normalized_url,))
-            row = cursor.fetchone()
-            if row:
-                db.execute('UPDATE downloads SET subtitles = ?, timestamp = CURRENT_TIMESTAMP WHERE url = ?', (json.dumps(subtitles), normalized_url))
-            else:
-                db.execute('INSERT INTO downloads(url, subtitles) VALUES (?, ?)', (normalized_url, json.dumps(subtitles)))
-            db.commit()
-
-        # 파일 삭제
-        if os.path.exists(filepath):
-            os.remove(filepath)
-        if os.path.exists(converted_filepath):
-            os.remove(converted_filepath)
-        app.logger.info(f"Deleted files: {filepath} and {converted_filepath}")
-
-        return jsonify(
-            {'message': 'Audio downloaded successfully', 'filename': filename, 'subtitles': subtitles})
     except Exception as e:
         app.logger.error(f"Error processing request: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
@@ -204,11 +203,8 @@ def download_audio():
 if __name__ == '__main__':
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
-
     if not os.path.exists('srtfiles'):
         os.makedirs('srtfiles')
-
     if not os.path.exists(DATABASE):
         init_db()
-
     app.run(debug=True)
