@@ -21,3 +21,4 @@ soundfile
 flask-socketio
 scipy
 accelerate
+flash-attn
