@@ -181,7 +181,7 @@ def download_audio():
         filepath = os.path.join('downloads', filename)
         audio_stream.download(output_path='downloads', filename=filename)
 
-        converted_filepath = os.path.join('downloads', f"{safe_title}_converted.wav")
+        converted_filepath = os.path.join('downloads', f"{safe_title}.wav")
         ffmpeg.input(filepath).output(converted_filepath, format='wav', acodec='pcm_s16le', ar='16k', ac=1).run()
 
         splits_folder = split_audio(converted_filepath)
